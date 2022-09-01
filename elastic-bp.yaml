@@ -1,0 +1,92 @@
+apiVersion: cr.kanister.io/v1alpha1
+kind: Blueprint
+metadata: 
+  name: elastic-bp
+  namespace: kasten-io  
+actions:
+  backup:
+    outputArtifacts:
+      s3Snap:
+        keyValue:
+          repoPath: '{{ .Phases.setupPhase.Output.repoPath }}'
+          snpashotName: '{{ .Phases.setupPhase.Output.snapshotName }}'
+    phases:   
+    - func: KubeTask
+      name: setupPhase
+      args:        
+        image: ghcr.io/kanisterio/kanister-kubectl-1.18:0.81.0
+        command:
+        - bash
+        - -o
+        - errexit
+        - -o
+        - pipefail
+        - -c
+        - |
+          CLUSTER_UID=$(kubectl get ns default -o jsonpath='{.metadata.uid}')
+          NS_UID=$(kubectl get ns {{ .Object.metadata.namespace }} -o jsonpath='{.metadata.uid}')
+          ES_CLUSTER_UID=$(kubectl get elasticsearch {{ .Object.metadata.name }} -n {{ .Object.metadata.namespace }} -o jsonpath='{.metadata.uid}')
+          REPO_PATH=k10/$CLUSTER_UID/elastic-search/$NS_UID/$ES_CLUSTER_UID
+          SNAPSHOT_NAME="snap_{{ toDate "2006-01-02T15:04:05.999999999Z07:00" .Time | date "2006-01-02T15:04:05Z07:00" }}"
+          kando output repoPath $REPO_PATH 
+          kando output snapshotName $SNAPSHOT_NAME 
+    - func: KubeExec
+      name: snapshotElastic
+      objects:
+        elasticSecret:
+          kind: Secret
+          name: '{{ .Object.metadata.name }}-es-elastic-user'
+          namespace: '{{ .Object.metadata.namespace }}'      
+      args:
+        namespace: "{{ .Object.metadata.namespace }}"        
+        pod: "{{ .Object.metadata.name }}-es-{{ .Object.metadata.namespace }}-0"
+        container: elasticsearch
+        command:
+        - bash
+        - -o
+        - errexit
+        - -o
+        - pipefail
+        - -c
+        - |
+          debug=1
+          function dbg
+          {
+              if [[ $debug -eq 1 ]]
+              then 
+                echo "$(date "+%Y-%m-%d %H:%M:%S.%3N") - $0 - $*" >> /tmp/k10_debug.log
+              fi
+          }           
+          PROFILE_TYPE="{{ .Profile.Location.Type }}"
+          if [[ $PROFILE_TYPE != "s3Compliant" ]]
+          then 
+            dbg "Only s3Compliant profile are supported, exiting"
+            exit 1
+          fi
+          ES_URL="https://{{ .Object.metadata.name }}-es-http:9200"
+          PASSWORD="{{ index .Phases.snapshotElastic.Secrets.elasticSecret.Data "elastic" | toString }}"
+          {{- if .Profile.Credential.KeyPair }}
+          AWS_SECRET_KEY="{{ .Profile.Credential.KeyPair.Secret }}"
+          AWS_ACCESS_KEY="{{ .Profile.Credential.KeyPair.ID }}"
+          {{- else }}
+          AWS_SECRET_KEY="{{ .Profile.Credential.Secret.Data.aws_secret_access_key | toString }}"
+          AWS_ACCESS_KEY="{{ .Profile.Credential.Secret.Data.aws_access_key_id | toString }}"
+          {{- end }}
+          REGION="{{ .Profile.Location.Region }}"
+          BUCKET="{{ .Profile.Location.Bucket }}"
+          ENDPOINT="{{ .Profile.Location.Endpoint }}"
+          if [[ -z $ENDPOINT ]] 
+          then 
+             ENDPOINT="s3.amazonaws.com"
+          fi
+          REPO_PATH="{{ .Phases.setupPhase.Output.repoPath }}"
+          SNAPSHOT_NAME="{{ .Phases.setupPhase.Output.snapshotName }}"
+          dbg "AWS_SECRET_KEY=$AWS_SECRET_KEY"
+          dbg "AWS_ACCESS_KEY=$AWS_ACCESS_KEY"
+          dbg "REGION=$REGION"
+          dbg "BUCKET=$BUCKET"
+          dbg "ENDPOINT=$ENDPOINT"
+          dbg "PASSWORD=$PASSWORD"
+          dbg "PROFILE_TYPE=$PROFILE_TYPE"
+          dbg "REPO_PATH=$REPO_PATH"
+          dbg "SNAPSHOT_NAME=$SNAPSHOT_NAME"
