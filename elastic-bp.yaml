@@ -304,6 +304,6 @@ actions:
           '
           sleep 4
 
-   # delete action need som extra work because we may be in situation where the current elastic instance is not available
-   # in this case we need to recreate a temporary one and run the snnapshot removal
+   # delete action need some extra work because we may be in situation where the current elastic instance is not available
+   # in this case we need to recreate a temporary one and run the snapshot removal
 

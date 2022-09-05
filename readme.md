@@ -325,7 +325,7 @@ In our case we see no issue in the  issue_detected field
 }
 ```
 
-## Creating the first snapshot 
+## Create the first snapshot 
 
 ```
 curl -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/_snapshot/k10_repo/my_snapshot_1?wait_for_completion=true&pretty"
