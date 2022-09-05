@@ -31,7 +31,7 @@ It let also the elasticsearch cluster being backup with other workloads like pos
 
 ### 1. Exercice backup/restore without Kasten
 
-First test your backup/restore/delete process out of Kasten. You must understand how the data service you are using can be backed up and restored. You must know also how to delete the backup to avoid cluttering the storage. Those operation must be validated in your deployments, if needed you may deploy extra pod, blueprint will allow you to that as well. 
+First test your backup/restore/delete process out of Kasten. You must understand how the data service you are using can be backed up and restored. You must know also how to delete the backup to avoid cluttering the storage. Those operation must be validated in your deployments, if needed you may deploy extra pod, blueprint will allow you to do that as well. 
 
 This operational knowledge will be encapsulated in a blueprint so that for the kasten's user this operation will be transparent.
 
@@ -158,8 +158,6 @@ metadata:
   name: quickstart
 spec:
   version: 8.4.1
-  # secureSettings:
-  # - secretName: s3-repository-config
   nodeSets:
   - name: default
     count: 1
@@ -173,11 +171,6 @@ monitor
 kubectl get elasticsearch
 ```
 
-You can check that the secret entries has been added to the elastic search keystore
-
-```
-k logs -c elastic-internal-init-keystore quickstart-es-default-0
-```
 
 ## Create a client 
 
@@ -216,7 +209,7 @@ curl -k -u "elastic:$PASSWORD" -X GET "${ES_URL}/my-index-000001/_doc/1?pretty"
 
 # Register a repository 
 
-## Secure clien setting 
+## Secure client setting 
 
 Let's add s3 credentials in the keystore, this command need to be executed on each elastic node. 
 
@@ -237,7 +230,7 @@ curl -k -u "elastic:$PASSWORD" -X POST "${ES_URL}/_nodes/reload_secure_settings?
 
 ## Naming
 
-Let's register a repository following the k1O good practice and assuming were working with compatible s3. Later we'll improve the blueprint to handle the registration.
+Let's register a repository following the k10 good practice and assuming were working with compatible s3. 
 
 ```
 k10/<k8s-uid>/elastic-search/<namespace-uid>/<es-cluster-uid>
@@ -386,6 +379,8 @@ If the database is very big you may not use the parameter wait_for_completion=tr
 curl -k -u "elastic:$PASSWORD" -X GET "${ES_URL}/_snapshot/k10_repo/_current?pretty"
 ```
 
+A possible adaptation of the blueprint would be to loop on this api until no on-going snapshot is running.
+
 # Restore 
 
 ## check the snapshot and change the data
@@ -511,7 +506,7 @@ curl -k -u "elastic:$PASSWORD" -X DELETE "${ES_URL}/_snapshot/k10_repo/my_snapsh
 
 In the backup action we execute two kubeTask. A kubeTask is a pod you spin up for executing a specific action. One the action is finished the pod is removed. 
 
-The first kubetask is in the kasten-io namespace hence executiong with the k10-k10 sa namespace to have ability to execute actions on all elasticsearch member through a kubeExec action.
+The first kubetask is in the kasten-io namespace hence executiong with the k10-k10 sa to have ability to execute actions on all elasticsearch member through a kubeExec action.
 
 In this kubetask we register the s3 credentials 
 ```
@@ -555,7 +550,7 @@ In the second kubeTask we register the repo and launch the backup
           curl -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/_snapshot/k10_repo/$SNAPSHOT_NAME?wait_for_completion=true&pretty"
 ```
 
-We make the elasticsearch user secret available 
+We also make the elasticsearch user secret available this is necessary to authenticate the elasticsearch api.
 
 ```
     - func: KubeTask
