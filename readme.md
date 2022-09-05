@@ -142,13 +142,6 @@ kubectl -n elastic-system logs -f statefulset.apps/elastic-operator
 
 ## Create a cluster 
 
-Create secure config for the s3 repository
-```
-kubectl create secret generic s3-repository-config \
-  --from-literal=s3.client.default.access_key=${AWS_S3_ACCESS_KEY_ID} \
-  --from-literal=s3.client.default.secret_key=${AWS_S3_SECRET_ACCESS_KEY} 
-```
-
 Create a cluster 
 ```
 cat <<EOF | kubectl apply -f -
@@ -568,7 +561,25 @@ PASSWORD="{{ index .Phases.setupPhase.Secrets.elasticSecret.Data "elastic" | toS
 
 ### Restore 
 
-Restore work the same way execpt that now the we consume the output of the backup 
+In restore we wait first for the cluster to become green
+
+```
+    - func: Wait
+      name: waitElasticGreen
+      args:
+        timeout: 360s
+        conditions:
+          anyOf:
+            - condition: '{{ if (eq "{ $.status.health }" "green")}}true{{ else }}false{{ end }}'            
+              objectReference:
+                apiVersion: v1
+                group: elasticsearch.k8s.elastic.co
+                resource: elasticsearches
+                name: "{{ .Object.metadata.name }}"
+                namespace: "{{ .Object.metadata.namespace}}"  
+```
+
+Now the we consume the output of the backup 
 
 ```
   restore:
@@ -580,6 +591,8 @@ Restore work the same way execpt that now the we consume the output of the backu
           REPO_PATH="{{ .ArtifactsIn.s3Snap.KeyValue.repoPath }}"
           SNAPSHOT_NAME="{{ .ArtifactsIn.s3Snap.KeyValue.snapshotName }}"
 ```
+
+
 
 ### Delete 
 

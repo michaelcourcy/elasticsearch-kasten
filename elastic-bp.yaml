@@ -130,6 +130,19 @@ actions:
     inputArtifactNames: 
     - s3Snap  # use it with  for instance {{ .ArtifactsIn.s3Snap.KeyValue.repoPath }} or {{ .ArtifactsIn.s3Snap.KeyValue.snapshotName }}
     phases:   
+    - func: Wait
+      name: waitElasticGreen
+      args:
+        timeout: 360s
+        conditions:
+          anyOf:
+            - condition: '{{ if (eq "{ $.status.health }" "green")}}true{{ else }}false{{ end }}'            
+              objectReference:
+                apiVersion: v1
+                group: elasticsearch.k8s.elastic.co
+                resource: elasticsearches
+                name: "{{ .Object.metadata.name }}"
+                namespace: "{{ .Object.metadata.namespace}}"  
     - func: KubeTask
       name: setupPhase
       objects:
@@ -305,5 +318,5 @@ actions:
           sleep 4
 
    # delete action need some extra work because we may be in situation where the current elastic instance is not available
-   # in this case we need to recreate a temporary one and run the snapshot removal
+   # in this case we need to recreate a temporary one and run the snapshot removal.
 
