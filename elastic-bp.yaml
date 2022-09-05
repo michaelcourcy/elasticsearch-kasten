@@ -9,10 +9,15 @@ actions:
       s3Snap:
         keyValue:
           repoPath: '{{ .Phases.setupPhase.Output.repoPath }}'
-          snpashotName: '{{ .Phases.setupPhase.Output.snapshotName }}'
+          snapshotName: '{{ .Phases.setupPhase.Output.snapshotName }}'
     phases:   
     - func: KubeTask
       name: setupPhase
+      objects:
+        elasticSecret:
+          kind: Secret
+          name: '{{ .Object.metadata.name }}-es-elastic-user'
+          namespace: '{{ .Object.metadata.namespace }}' 
       args:        
         image: ghcr.io/kanisterio/kanister-kubectl-1.18:0.81.0
         command:
@@ -23,33 +28,7 @@ actions:
         - pipefail
         - -c
         - |
-          CLUSTER_UID=$(kubectl get ns default -o jsonpath='{.metadata.uid}')
-          NS_UID=$(kubectl get ns {{ .Object.metadata.namespace }} -o jsonpath='{.metadata.uid}')
-          ES_CLUSTER_UID=$(kubectl get elasticsearch {{ .Object.metadata.name }} -n {{ .Object.metadata.namespace }} -o jsonpath='{.metadata.uid}')
-          REPO_PATH=k10/$CLUSTER_UID/elastic-search/$NS_UID/$ES_CLUSTER_UID
-          SNAPSHOT_NAME="snap_{{ toDate "2006-01-02T15:04:05.999999999Z07:00" .Time | date "2006-01-02T15:04:05Z07:00" }}"
-          kando output repoPath $REPO_PATH 
-          kando output snapshotName $SNAPSHOT_NAME 
-    - func: KubeExec
-      name: snapshotElastic
-      objects:
-        elasticSecret:
-          kind: Secret
-          name: '{{ .Object.metadata.name }}-es-elastic-user'
-          namespace: '{{ .Object.metadata.namespace }}'      
-      args:
-        namespace: "{{ .Object.metadata.namespace }}"        
-        pod: "{{ .Object.metadata.name }}-es-{{ .Object.metadata.namespace }}-0"
-        container: elasticsearch
-        command:
-        - bash
-        - -o
-        - errexit
-        - -o
-        - pipefail
-        - -c
-        - |
-          debug=1
+          debug=0
           function dbg
           {
               if [[ $debug -eq 1 ]]
@@ -63,8 +42,16 @@ actions:
             dbg "Only s3Compliant profile are supported, exiting"
             exit 1
           fi
-          ES_URL="https://{{ .Object.metadata.name }}-es-http:9200"
-          PASSWORD="{{ index .Phases.snapshotElastic.Secrets.elasticSecret.Data "elastic" | toString }}"
+          CLUSTER_UID=$(kubectl get ns default -o jsonpath='{.metadata.uid}')
+          NS_UID=$(kubectl get ns {{ .Object.metadata.namespace }} -o jsonpath='{.metadata.uid}')
+          ES_CLUSTER_UID={{ .Object.metadata.uid }}
+          REPO_PATH=k10/$CLUSTER_UID/elastic-search/$NS_UID/$ES_CLUSTER_UID
+          SNAPSHOT_NAME="snap_{{ toDate "2006-01-02T15:04:05.999999999Z07:00" .Time | date "2006-01-02t15:04:05z07:00" }}"
+          # output the value in the restorepoint  
+          kando output repoPath $REPO_PATH 
+          kando output snapshotName $SNAPSHOT_NAME 
+
+          # setup the credentials on the keystore setting of each nodes 
           {{- if .Profile.Credential.KeyPair }}
           AWS_SECRET_KEY="{{ .Profile.Credential.KeyPair.Secret }}"
           AWS_ACCESS_KEY="{{ .Profile.Credential.KeyPair.ID }}"
@@ -72,6 +59,39 @@ actions:
           AWS_SECRET_KEY="{{ .Profile.Credential.Secret.Data.aws_secret_access_key | toString }}"
           AWS_ACCESS_KEY="{{ .Profile.Credential.Secret.Data.aws_access_key_id | toString }}"
           {{- end }}
+          # Support for more than one node set is not supported for the moment
+          NODE_SET_COUNT={{ (index .Object.spec.nodeSets 0).count }}
+          NODE_SET_COUNT=$((NODE_SET_COUNT-1))
+          NODE_SET_NAME={{ (index .Object.spec.nodeSets 0).name }}
+          for i in $(seq 0 $NODE_SET_COUNT)
+          do 
+              pod="{{ .Object.metadata.name }}-es-$NODE_SET_NAME-$i"
+              kubectl exec -it -n {{ .Object.metadata.namespace }} $pod -c elasticsearch -- bash -c "echo ${AWS_ACCESS_KEY} | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin -f s3.client.default.access_key" 
+              kubectl exec -it -n {{ .Object.metadata.namespace }} $pod -c elasticsearch -- bash -c "echo ${AWS_SECRET_KEY} | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin -f s3.client.default.secret_key"
+          done                                     
+    - func: KubeTask
+      name: snapshotElastic     
+      args:
+        namespace: "{{ .Object.metadata.namespace }}"                
+        image: ghcr.io/kanisterio/kanister-kubectl-1.18:0.81.0
+        command:
+        - bash
+        - -o
+        - errexit
+        - -o
+        - pipefail
+        - -c
+        - |
+          debug=0
+          function dbg
+          {
+              if [[ $debug -eq 1 ]]
+              then 
+                echo "$(date "+%Y-%m-%d %H:%M:%S.%3N") - $0 - $*" >> /tmp/k10_debug.log
+              fi
+          }                     
+          ES_URL="https://{{ .Object.metadata.name }}-es-http:9200"
+          PASSWORD="{{ index .Phases.setupPhase.Secrets.elasticSecret.Data "elastic" | toString }}"
           REGION="{{ .Profile.Location.Region }}"
           BUCKET="{{ .Profile.Location.Bucket }}"
           ENDPOINT="{{ .Profile.Location.Endpoint }}"
@@ -81,8 +101,6 @@ actions:
           fi
           REPO_PATH="{{ .Phases.setupPhase.Output.repoPath }}"
           SNAPSHOT_NAME="{{ .Phases.setupPhase.Output.snapshotName }}"
-          dbg "AWS_SECRET_KEY=$AWS_SECRET_KEY"
-          dbg "AWS_ACCESS_KEY=$AWS_ACCESS_KEY"
           dbg "REGION=$REGION"
           dbg "BUCKET=$BUCKET"
           dbg "ENDPOINT=$ENDPOINT"
@@ -90,3 +108,202 @@ actions:
           dbg "PROFILE_TYPE=$PROFILE_TYPE"
           dbg "REPO_PATH=$REPO_PATH"
           dbg "SNAPSHOT_NAME=$SNAPSHOT_NAME"
+          # reload the secure settings to access the S3 profile
+          curl -k -u "elastic:$PASSWORD" -X POST "${ES_URL}/_nodes/reload_secure_settings?pretty" -H 'Content-Type: application/json' -d'
+          {}
+          '
+          # create the repo
+          curl -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/_snapshot/k10_repo?pretty" -H 'Content-Type: application/json' -d'
+          {
+            "type": "s3",
+            "settings": {    
+              "bucket": "'$BUCKET'",
+              "endpoint": "'$ENDPOINT'",
+              "region": "'$REGION'",
+              "base_path": "'$REPO_PATH'"
+            }
+          }
+          '
+          # create the snap 
+          curl -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/_snapshot/k10_repo/$SNAPSHOT_NAME?wait_for_completion=true&pretty"
+  restore:
+    inputArtifactNames: 
+    - s3Snap  # use it with  for instance {{ .ArtifactsIn.s3Snap.KeyValue.repoPath }} or {{ .ArtifactsIn.s3Snap.KeyValue.snapshotName }}
+    phases:   
+    - func: KubeTask
+      name: setupPhase
+      objects:
+        elasticSecret:
+          kind: Secret
+          name: '{{ .Object.metadata.name }}-es-elastic-user'
+          namespace: '{{ .Object.metadata.namespace }}' 
+      args:        
+        image: ghcr.io/kanisterio/kanister-kubectl-1.18:0.81.0
+        command:
+        - bash
+        - -o
+        - errexit
+        - -o
+        - pipefail
+        - -c
+        - |
+          debug=0
+          function dbg
+          {
+              if [[ $debug -eq 1 ]]
+              then 
+                echo "$(date "+%Y-%m-%d %H:%M:%S.%3N") - $0 - $*" >> /tmp/k10_debug.log
+              fi
+          }           
+          PROFILE_TYPE="{{ .Profile.Location.Type }}"
+          if [[ $PROFILE_TYPE != "s3Compliant" ]]
+          then 
+            dbg "Only s3Compliant profile are supported, exiting"
+            exit 1
+          fi          
+          # setup the credentials on the keystore setting of each nodes 
+          {{- if .Profile.Credential.KeyPair }}
+          AWS_SECRET_KEY="{{ .Profile.Credential.KeyPair.Secret }}"
+          AWS_ACCESS_KEY="{{ .Profile.Credential.KeyPair.ID }}"
+          {{- else }}
+          AWS_SECRET_KEY="{{ .Profile.Credential.Secret.Data.aws_secret_access_key | toString }}"
+          AWS_ACCESS_KEY="{{ .Profile.Credential.Secret.Data.aws_access_key_id | toString }}"
+          {{- end }}
+          # Support for more than one node set is not supported for the moment
+          NODE_SET_COUNT={{ (index .Object.spec.nodeSets 0).count }}
+          NODE_SET_COUNT=$((NODE_SET_COUNT-1))
+          NODE_SET_NAME={{ (index .Object.spec.nodeSets 0).name }}
+          for i in $(seq 0 $NODE_SET_COUNT)
+          do 
+              pod="{{ .Object.metadata.name }}-es-$NODE_SET_NAME-$i"
+              kubectl exec -it -n {{ .Object.metadata.namespace }} $pod -c elasticsearch -- bash -c "echo ${AWS_ACCESS_KEY} | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin -f s3.client.default.access_key" 
+              kubectl exec -it -n {{ .Object.metadata.namespace }} $pod -c elasticsearch -- bash -c "echo ${AWS_SECRET_KEY} | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin -f s3.client.default.secret_key"
+          done                                     
+    - func: KubeTask
+      name: restoreElastic     
+      args:
+        namespace: "{{ .Object.metadata.namespace }}"                
+        image: ghcr.io/kanisterio/kanister-kubectl-1.18:0.81.0
+        command:
+        - bash
+        - -o
+        - errexit
+        - -o
+        - pipefail
+        - -c
+        - |
+          debug=0
+          function dbg
+          {
+              if [[ $debug -eq 1 ]]
+              then 
+                echo "$(date "+%Y-%m-%d %H:%M:%S.%3N") - $0 - $*" >> /tmp/k10_debug.log
+              fi
+          }                     
+          ES_URL="https://{{ .Object.metadata.name }}-es-http:9200"
+          PASSWORD="{{ index .Phases.setupPhase.Secrets.elasticSecret.Data "elastic" | toString }}"
+          REGION="{{ .Profile.Location.Region }}"
+          BUCKET="{{ .Profile.Location.Bucket }}"
+          ENDPOINT="{{ .Profile.Location.Endpoint }}"
+          if [[ -z $ENDPOINT ]] 
+          then 
+             ENDPOINT="s3.amazonaws.com"
+          fi
+          REPO_PATH="{{ .ArtifactsIn.s3Snap.KeyValue.repoPath }}"
+          SNAPSHOT_NAME="{{ .ArtifactsIn.s3Snap.KeyValue.snapshotName }}"
+          dbg "REGION=$REGION"
+          dbg "BUCKET=$BUCKET"
+          dbg "ENDPOINT=$ENDPOINT"
+          dbg "PASSWORD=$PASSWORD"
+          dbg "PROFILE_TYPE=$PROFILE_TYPE"
+          dbg "REPO_PATH=$REPO_PATH"
+          dbg "SNAPSHOT_NAME=$SNAPSHOT_NAME"
+          
+          # reload the secure settings to access the S3 profile
+          curl -k -u "elastic:$PASSWORD" -X POST "${ES_URL}/_nodes/reload_secure_settings?pretty" -H 'Content-Type: application/json' -d'
+          {}
+          '
+          
+          # create the repo
+          curl -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/_snapshot/k10_repo?pretty" -H 'Content-Type: application/json' -d'
+          {
+            "type": "s3",
+            "settings": {    
+              "bucket": "'$BUCKET'",
+              "endpoint": "'$ENDPOINT'",
+              "region": "'$REGION'",
+              "base_path": "'$REPO_PATH'"
+            }
+          }
+          '
+         
+          # stop service geoip, machine learning, monitoring and watcher
+          curl  -k -u "elastic:$PASSWORD"  -X PUT "${ES_URL}/_cluster/settings?pretty" -H 'Content-Type: application/json' -d'
+          {
+            "persistent": {
+              "ingest.geoip.downloader.enabled": false
+            }
+          }
+          '
+          curl  -k -u "elastic:$PASSWORD"  -X POST "${ES_URL}/_ilm/stop?pretty"
+          curl  -k -u "elastic:$PASSWORD"  -X POST "${ES_URL}/_ml/set_upgrade_mode?enabled=true&pretty"
+          curl  -k -u "elastic:$PASSWORD"  -X PUT "${ES_URL}/_cluster/settings?pretty" -H 'Content-Type: application/json' -d'
+          {
+            "persistent": {
+              "xpack.monitoring.collection.enabled": false
+            }
+          }
+          '
+          curl  -k -u "elastic:$PASSWORD"  -X POST "${ES_URL}/_watcher/_stop?pretty"
+          
+          # delete all datastreams and indices 
+          curl  -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/_cluster/settings?pretty" -H 'Content-Type: application/json' -d'
+          {
+            "persistent": {
+              "action.destructive_requires_name": false
+            }
+          }
+          '
+          curl  -k -u "elastic:$PASSWORD" -X DELETE "${ES_URL}/_data_stream/*?expand_wildcards=all&pretty"
+          curl  -k -u "elastic:$PASSWORD" -X DELETE "${ES_URL}/*?expand_wildcards=all&pretty"
+
+          # restore all
+          curl  -k -u "elastic:$PASSWORD" -X POST "${ES_URL}/_snapshot/k10_repo/$SNAPSHOT_NAME/_restore?wait_for_completion=true&pretty" -H 'Content-Type: application/json' -d'
+          {
+            "indices": "*",
+            "include_global_state": true
+          }
+          '
+
+          # Restart service geoip, machine learning, monitoring and watcher
+          curl  -k -u "elastic:$PASSWORD"  -X PUT "${ES_URL}/_cluster/settings?pretty" -H 'Content-Type: application/json' -d'
+          {
+            "persistent": {
+              "ingest.geoip.downloader.enabled": true
+            }
+          }
+          '
+          curl  -k -u "elastic:$PASSWORD"  -X POST "${ES_URL}/_ilm/start?pretty"
+          curl  -k -u "elastic:$PASSWORD"  -X POST "${ES_URL}/_ml/set_upgrade_mode?enabled=false&pretty"
+          curl  -k -u "elastic:$PASSWORD"  -X PUT "${ES_URL}/_cluster/settings?pretty" -H 'Content-Type: application/json' -d'
+          {
+            "persistent": {
+              "xpack.monitoring.collection.enabled": true
+            }
+          }
+          '
+          curl  -k -u "elastic:$PASSWORD"  -X POST "${ES_URL}/_watcher/_start?pretty"
+
+          # Reenable destructive_requires_name
+          curl  -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/_cluster/settings?pretty" -H 'Content-Type: application/json' -d'
+          {
+            "persistent": {
+              "action.destructive_requires_name": null
+            }
+          }
+          '
+          sleep 4
+
+   # delete action need som extra work because we may be in situation where the current elastic instance is not available
+   # in this case we need to recreate a temporary one and run the snnapshot removal
+
