@@ -12,7 +12,7 @@ Hence you need to read, understand and *adapt* this blueprint before deploying i
 
 ## Goal
 
-Demonstrate how to make a Kasten Blueprint for elasticsearch. Today ES only support backup through it's snapshot api. 
+Demonstrate how to make a Kasten Blueprint for elasticsearch. Today ES only support backup through its snapshot api. 
 
 Any attempt to use storage snapshot is not supported by ES and can lead to data loss. 
 
@@ -88,6 +88,7 @@ ES on kubernetes
 - https://www.elastic.co/guide/en/cloud-on-k8s/current/index.html
 - https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-operator-config.html
 - https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-snapshots.html
+- https://www.elastic.co/guide/en/cloud-on-k8s/0.9/k8s-snapshot.html
 
 ES CRUD for testing
 - https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-create-index.html
@@ -126,6 +127,12 @@ A copy of the data directories of a cluster’s nodes does not work as a backup 
 
 # Install elastic search and exercice backup and restore.
 
+## Assumption 
+
+During this test I work with an amazon s3 bucket michae-couchbase on the eu-west-3 region (paris), and the endpoint is s3.amazonaws.com, of course you'll have to change those value for your test.
+
+Inside the blueprint those parameters are automatically defined by the location profile.
+
 ## operator
 
 
@@ -144,6 +151,8 @@ kubectl -n elastic-system logs -f statefulset.apps/elastic-operator
 
 Create a cluster 
 ```
+kubectl create ns test-es1
+kubectl config set-context --current --namespace test-es1
 cat <<EOF | kubectl apply -f -
 apiVersion: elasticsearch.k8s.elastic.co/v1
 kind: Elasticsearch
@@ -153,7 +162,32 @@ spec:
   version: 8.4.1
   nodeSets:
   - name: default
-    count: 1
+    count: 2     
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data # Do not change this name unless you set up a volume mount for the data path.
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Gi  
+    config:
+      node.store.allow_mmap: false
+EOF
+```
+
+```
+cat <<EOF | kubectl apply -f -
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: quickstart-small
+spec:
+  version: 8.4.1
+  nodeSets:
+  - name: default
+    count: 1          
     config:
       node.store.allow_mmap: false
 EOF
@@ -164,12 +198,19 @@ monitor
 kubectl get elasticsearch
 ```
 
+## Deploy the blueprint 
+
+```
+kubectl create -f elastic-bp-s3.yaml
+kubectl annotate elasticsearch/quickstart \
+    kanister.kasten.io/blueprint=elastic-bp
+```
 
 ## Create a client 
 
 ```
 PASSWORD=$(kubectl get secret quickstart-es-elastic-user -o go-template='{{.data.elastic | base64decode}}')
-kubectl run curl -it --restart=Never --rm --image curlimages/curl --env="PASSWORD=$PASSWORD" --command sh 
+kubectl run curl -it --restart=Never --rm --image cghcr.io/kanisterio/kanister-kubectl-1.18:0.81.0 --env="PASSWORD=$PASSWORD" --command bash 
 ```
 
 In the curl pod shell let's check some command 
@@ -186,8 +227,8 @@ curl -u "elastic:$PASSWORD" -k "${ES_URL}"
 curl  -k -u "elastic:$PASSWORD" -X GET "${ES_URL}/*?pretty"
 # Create an index 
 curl  -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/my-index-000001?pretty"
-#  add a document 
-curl  -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/my-index-000001/_doc/1?timeout=5m&pretty" -H 'Content-Type: application/json' -d'
+#  add an index and a document 
+curl  -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/my-index-000002/_doc/1?timeout=5m&pretty" -H 'Content-Type: application/json' -d'
 {
   "@timestamp": "2099-11-15T13:12:00",
   "message": "GET /search HTTP/1.1 200 1070000",
@@ -197,8 +238,12 @@ curl  -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/my-index-000001/_doc/1?timeout
 }
 '
 # retreive document 
-curl -k -u "elastic:$PASSWORD" -X GET "${ES_URL}/my-index-000001/_doc/1?pretty"
+curl -k -u "elastic:$PASSWORD" -X GET "${ES_URL}/my-index-000002/_doc/1?pretty"
+# Get the health 
+curl  -k -u "elastic:$PASSWORD" -X GET "${ES_URL}/_cluster/health?pretty"
 ```
+
+
 
 # Register a repository 
 
@@ -209,6 +254,8 @@ Let's add s3 credentials in the keystore, this command need to be executed on ea
 ```
 kubectl exec -it quickstart-es-default-0 -c elasticsearch -- bash -c "echo ${AWS_S3_ACCESS_KEY_ID} | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin -f s3.client.default.access_key" 
 kubectl exec -it quickstart-es-default-0 -c elasticsearch -- bash -c "echo ${AWS_S3_SECRET_ACCESS_KEY} | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin -f s3.client.default.secret_key"
+kubectl exec -it quickstart-es-default-1 -c elasticsearch -- bash -c "echo ${AWS_S3_ACCESS_KEY_ID} | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin -f s3.client.default.access_key" 
+kubectl exec -it quickstart-es-default-1 -c elasticsearch -- bash -c "echo ${AWS_S3_SECRET_ACCESS_KEY} | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin -f s3.client.default.secret_key"
 ```
 
 reload the secure settings, secure settings are reloadable without restart of the nodes.
@@ -235,12 +282,12 @@ This approach garantee the unicity of the repository accross clusters, namespace
 Register the repo, execute this command in another terminal and paste the output between ===...=== in the elasticsearch client 
 ```
 CLUSTER_UID=$(kubectl get ns default -o jsonpath='{.metadata.uid}')
-NS_UID=$(kubectl get ns default -o jsonpath='{.metadata.uid}')
+NS_UID=$(kubectl get ns test-es1 -o jsonpath='{.metadata.uid}')
 ES_CLUSTER_UID=$(kubectl get elasticsearch quickstart -o jsonpath='{.metadata.uid}')
 REPO_PATH=k10/$CLUSTER_UID/elastic-search/$NS_UID/$ES_CLUSTER_UID
 echo "======================"
 cat <<EOF
-curl -k -u "elastic:\$PASSWORD" -X PUT "${ES_URL}/_snapshot/k10_repo?pretty" -H 'Content-Type: application/json' -d'
+curl -k -u "elastic:\$PASSWORD" -X PUT "\${ES_URL}/_snapshot/k10_repo?pretty" -H 'Content-Type: application/json' -d'
 {
   "type": "s3",
   "settings": {    
@@ -369,7 +416,8 @@ You can also check the path has been created in the s3 bucket.
 If the database is very big you may not use the parameter wait_for_completion=true instead you can monitor the status of the snapshot 
 
 ```
-curl -k -u "elastic:$PASSWORD" -X GET "${ES_URL}/_snapshot/k10_repo/_current?pretty"
+curl -k -u "elastic:$PASSWORD" -X PUT "${ES_URL}/_snapshot/k10_repo/my_snapshot_1?pretty"
+curl -k -u "elastic:$PASSWORD" -X GET "${ES_URL}/_snapshot/k10_repo/my_snapshot_1?pretty"
 ```
 
 A possible adaptation of the blueprint would be to loop on this api until no on-going snapshot is running.
@@ -602,11 +650,64 @@ TO FINISH
 ## Install 
 
 ```
-kubectl create -f elastic-bp.yaml
-kubectl --namespace default annotate elasticsearch/quickstart \
+kubectl create -f elastic-bp-s3.yaml
+kubectl annotate elasticsearch/quickstart \
     kanister.kasten.io/blueprint=elastic-bp
 ```
 
 # Demo 
 
-Let's do a backup and a migration to another cluster.
+Let's do a backup and a migration to another cluster. 
+
+You can follow the execution of the blueprint by executing this command : 
+
+```
+while true; do kubectl logs -n kasten-io -f -l createdBy=kanister; sleep 2; done
+```
+
+To log the setUpPhase phase that execute in the kasten-io namespace, or execute this command 
+
+```
+while true; do kubectl logs -n test-es1 -f -l createdBy=kanister; sleep 2; done
+```
+
+to log the snapElastic or restoreElastic phase that execute in the test-es1 namespace.
+
+
+
+To accelerate this backup prcess you can just include the elasticsearch custom resource in your backup policy.
+
+You can restore in another namespace or in another cluster (in this case you need to install the elastic operator on this new cluster as we did)
+
+
+# Perormance testing 
+
+## Disclaimer 
+
+Any test use depends of the material hardware and the network. 
+
+We use Standard_DS2_v2 Azure AKS machine and sent the backup to Amazon S3, they both were localized in West Europe.
+
+## Using rally
+
+Let's use rally to fill up the es cluster.
+
+```
+PASSWORD=$(kubectl get secret quickstart-es-elastic-user -o go-template='{{.data.elastic | base64decode}}')
+k run rally --image=elastic/rally --env="PASSWORD=$PASSWORD" --command -- tail -f /dev/null
+k exec rally -it -- bash 
+esrally list tracks
+```
+Let's run the taxi track 
+```
+ES_URL="quickstart-es-http:9200"
+esrally race --track=pmc --pipeline=benchmark-only --target-hosts=$ES_URL --client-options="use_ssl:true,verify_certs:false,basic_auth_user:'elastic',basic_auth_password:'$PASSWORD'"
+```
+
+Check the volumes of data 
+```
+kubectl exec quickstart-es-default-0 -- du -hs /usr/share/elasticsearch/data
+kubectl exec quickstart-es-default-1 -- du -hs /usr/share/elasticsearch/data
+```
+
+The output show 6 gb of data on the pvc mount for a total of 327144 pmc documents.
