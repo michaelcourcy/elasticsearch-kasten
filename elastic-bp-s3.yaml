@@ -119,10 +119,7 @@ actions:
               "bucket": "'$BUCKET'",
               "endpoint": "'$ENDPOINT'",
               "region": "'$REGION'",
-              "base_path": "'$REPO_PATH'",
-              "ssl": {
-                "verification_mode": "none"
-              }
+              "base_path": "'$REPO_PATH'"             
             }
           }
           '
@@ -263,10 +260,7 @@ actions:
               "bucket": "'$BUCKET'",
               "endpoint": "'$ENDPOINT'",
               "region": "'$REGION'",
-              "base_path": "'$REPO_PATH'",
-              "ssl": {
-                "verification_mode": "none"
-              }
+              "base_path": "'$REPO_PATH'"              
             }
           }
           '
@@ -437,10 +431,7 @@ actions:
               "bucket": "'$BUCKET'",
               "endpoint": "'$ENDPOINT'",
               "region": "'$REGION'",
-              "base_path": "'$REPO_PATH'",
-              "ssl": {
-                "verification_mode": "none"
-              }
+              "base_path": "'$REPO_PATH'"
             }
           }
           ' 
