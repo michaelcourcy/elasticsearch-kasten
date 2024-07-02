@@ -48,6 +48,11 @@ functionality for cluster backups.
 
 
 It's why with this blueprint you can exclude the elastic pvc from the kasten backup. 
+that will accelerate your backup.
+
+However as a double security you can also backup the filesystem but when restoring 
+you can exclude the PVC from the restore, because the data will be repopulated from
+the elastic snapshot.
 
 # Test it 
 
