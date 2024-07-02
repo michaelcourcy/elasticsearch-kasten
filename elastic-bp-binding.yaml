@@ -1,0 +1,20 @@
+apiVersion: config.kio.kasten.io/v1alpha1
+kind: BlueprintBinding
+metadata:
+  name: elastic-blueprint-binding  
+spec:
+  blueprintRef:
+    name: elasticsearch-incremental-blueprint
+    namespace: kasten-io
+  resources:
+    matchAll:
+    - type:
+        operator: In
+        values:
+        - group: elasticsearch.k8s.elastic.co
+          resource: elasticsearches
+    # allow the blueprint to be applied to resources that do not have the annotation
+    - annotations:
+        key: kanister.kasten.io/blueprint
+        operator: DoesNotExist
+
