@@ -38,14 +38,14 @@ https://www.elastic.co/guide/en/elasticsearch/reference/current/snapshot-restore
 
 Any attempt to make storage/kopia snapshot of the PVC could lead to unconsitencies or silent data loss.
 
----
-A copy of the data directories of a cluster’s nodes does not work as a backup 
+
+> A copy of the data directories of a cluster’s nodes does not work as a backup 
 because it is not a consistent representation of their contents at a single point 
 in time. You cannot fix this by shutting down nodes while making the copies, nor 
 by taking atomic filesystem-level snapshots, because Elasticsearch has consistency
 requirements that span the whole cluster. You must use the built-in snapshot 
 functionality for cluster backups.
----
+
 
 It's why with this blueprint you can exclude the elastic pvc from the kasten backup. 
 
