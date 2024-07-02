@@ -30,7 +30,7 @@ Snapshots are automatically deduplicated to save storage space and reduce networ
 Each snapshot is also logically independent. When you delete a snapshot, Elasticsearch only deletes the segments used exclusively by that snapshot. Elasticsearch doesn’t delete segments used by other snapshots in the repository.
 
 
-## Don't try to backup the filesystem
+## Backup of the PVC is not a reliable backup just an extra security
 
 It is explicitly said by elastic that ES snapshot is the only reliable way to backup elasticsearch.
 
