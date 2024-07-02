@@ -67,7 +67,7 @@ kubectl -n elastic-system logs -f statefulset.apps/elastic-operator
 
 ## Create a cluster 
 
-Create a cluster 
+Create a cluster with 2 nodesets 
 ```
 kubectl create ns test-es1
 cat <<EOF | kubectl apply -n test-es1 -f -
@@ -161,6 +161,9 @@ curl  -k -u "elastic:$PASSWORD" -X GET "${ES_URL}/_cluster/health?pretty"
 ## test 
 
 Backup and restore in another namespace by selecting only the elasticsearch resource.
+
+> [!NOTE]
+> When restoring in another namespace only restore the elasticsearches.elasticsearch.k8s.elastic.co object the rest of the artifact that starts with the name of the cluster (for instance the secrets or the configmaps) should be excluded from the restore. 
 
 Check you get back your data in this new cluster.
 
