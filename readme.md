@@ -210,7 +210,13 @@ https://www.elastic.co/guide/en/elasticsearch/reference/current/update-node-cert
 It is explicitly said [in this documenation](https://www.elastic.co/guide/en/elasticsearch/reference/current/repository-s3.html) that for the s3 protocol 
 ```
 protocol
-The protocol to use to connect to S3. Valid values are either http or https. Defaults to https. When using HTTPS, this repository type validates the repository’s certificate chain using the JVM-wide truststore. Ensure that the root certificate authority is in this truststore using the JVM’s keytool tool. If you have a custom certificate authority for your S3 repository and you use the Elasticsearch bundled JDK, then you will need to reinstall your CA certificate every time you upgrade Elasticsearch.
+The protocol to use to connect to S3. Valid values are either http or https. 
+Defaults to https. When using HTTPS, this repository type validates the 
+repository’s certificate chain using the JVM-wide truststore. 
+Ensure that the root certificate authority is in this truststore using the 
+JVM’s keytool tool. If you have a custom certificate authority for your S3 
+repository and you use the Elasticsearch bundled JDK, then you will need to 
+reinstall your CA certificate every time you upgrade Elasticsearch.
 ```
 
 Then we're going to add our ca to the /usr/share/elasticsearch/jdk/lib/security/cacerts files in the elasticsearch pods.
