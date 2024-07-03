@@ -199,7 +199,7 @@ Linux
 kubectl logs -n kasten-io -l component=kanister --tail=10000 -f | grep '"LogKind":"datapath"' | grep -o -P '(?<="Pod_Out":").*?(?=",)'
 ```
 
-# Working with a S3 compliant endpoint ca certificate 
+# Working with a custom certificate authority for your S3 repository
 
 ## Docs
 https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-transport-settings.html#k8s-transport-third-party-tools
@@ -209,7 +209,7 @@ https://www.elastic.co/guide/en/elasticsearch/reference/current/update-node-cert
 
 It is explicitly said [in this documenation](https://www.elastic.co/guide/en/elasticsearch/reference/current/repository-s3.html) that for the s3 protocol 
 ```
-protocol
+- protocol :
 The protocol to use to connect to S3. Valid values are either http or https. 
 Defaults to https. When using HTTPS, this repository type validates the 
 repository’s certificate chain using the JVM-wide truststore. 
