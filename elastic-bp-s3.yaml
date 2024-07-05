@@ -106,7 +106,7 @@ actions:
              ENDPOINT="s3.amazonaws.com"
              path_style_access=false
           else
-              // when using non amazon s3 endpoint, we need to use path style access
+              # when using non amazon s3 endpoint, we need to use path style access
               path_style_access=true
           fi
           REPO_PATH="{{ .Phases.setupNodeKeyStore.Output.repoPath }}"
@@ -251,7 +251,7 @@ actions:
              ENDPOINT="s3.amazonaws.com"
              path_style_access=false
           else
-              // when using non amazon s3 endpoint, we need to use path style access
+              # when using non amazon s3 endpoint, we need to use path style access
               path_style_access=true
           fi
           REPO_PATH="{{ .ArtifactsIn.s3Snap.KeyValue.repoPath }}"
@@ -427,7 +427,7 @@ actions:
              ENDPOINT="s3.amazonaws.com"
              path_style_access=false
           else
-              // when using non amazon s3 endpoint, we need to use path style access
+              # when using non amazon s3 endpoint, we need to use path style access
               path_style_access=true
           fi
           REPO_PATH="{{ .ArtifactsIn.s3Snap.KeyValue.repoPath }}"
