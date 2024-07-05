@@ -207,7 +207,7 @@ https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-transport-settings.html
 https://www.elastic.co/guide/en/elasticsearch/reference/current/update-node-certs-different.html
 
 
-It is explicitly said [in this documenation](https://www.elastic.co/guide/en/elasticsearch/reference/current/repository-s3.html) that for the s3 protocol 
+It is explicitly said [in this documentation](https://www.elastic.co/guide/en/elasticsearch/reference/current/repository-s3.html) that for the s3 protocol 
 ```
 - protocol :
 The protocol to use to connect to S3. Valid values are either http or https. 
@@ -384,11 +384,24 @@ for being able to alter it.
 cp /usr/share/elasticsearch/jdk/lib/security/cacerts cacerts
 chmod 777 cacerts
 /usr/share/elasticsearch/jdk/bin/keytool -import \
+      -file kube-ca.crt \
       -trustcacerts \
-      -keystore /usr/share/elasticsearch/jdk/lib/security/cacerts \
+      -keystore cacerts \
+      -storepass changeit \
+      -noprompt -alias kube-ca
+/usr/share/elasticsearch/jdk/bin/keytool -import \
+      -file s3-ca.crt \
+      -trustcacerts \
+      -keystore cacerts \
       -storepass changeit \
       -noprompt -alias s3-ca
 exit
+```
+
+Check you alias is in 
+```
+/usr/share/elasticsearch/jdk/bin/keytool -list -keystore cacerts -storepass changeit -alias s3-ca
+/usr/share/elasticsearch/jdk/bin/keytool -list -keystore cacerts -storepass changeit -alias kube-ca
 ```
 
 And copy it in your laptop, we're going to convert it in a secret 
