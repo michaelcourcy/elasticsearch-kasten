@@ -104,10 +104,10 @@ actions:
           if [[ -z $ENDPOINT ]] 
           then 
              ENDPOINT="s3.amazonaws.com"
-             path_style_access=false
+             path_style_access="false"
           else
               # when using non amazon s3 endpoint, we need to use path style access
-              path_style_access=true
+              path_style_access="true"
           fi
           REPO_PATH="{{ .Phases.setupNodeKeyStore.Output.repoPath }}"
           SNAPSHOT_NAME="{{ .Phases.setupNodeKeyStore.Output.snapshotName }}"
@@ -124,7 +124,7 @@ actions:
               "endpoint": "'$ENDPOINT'",
               "region": "'$REGION'",
               "base_path": "'$REPO_PATH'",
-              "path_style_access": $path_style_access          
+              "path_style_access": "'$path_style_access'"          
             }
           }
           '
@@ -249,10 +249,10 @@ actions:
           if [[ -z $ENDPOINT ]] 
           then 
              ENDPOINT="s3.amazonaws.com"
-             path_style_access=false
+             path_style_access="false"
           else
               # when using non amazon s3 endpoint, we need to use path style access
-              path_style_access=true
+              path_style_access="true"
           fi
           REPO_PATH="{{ .ArtifactsIn.s3Snap.KeyValue.repoPath }}"
           SNAPSHOT_NAME="{{ .ArtifactsIn.s3Snap.KeyValue.snapshotName }}"
@@ -270,7 +270,7 @@ actions:
               "endpoint": "'$ENDPOINT'",
               "region": "'$REGION'",
               "base_path": "'$REPO_PATH'",
-              "path_style_access": $path_style_access          
+              "path_style_access": "'$path_style_access'"          
             }
           }
           '
@@ -425,10 +425,10 @@ actions:
           if [[ -z $ENDPOINT ]] 
           then 
              ENDPOINT="s3.amazonaws.com"
-             path_style_access=false
+             path_style_access="false"
           else
               # when using non amazon s3 endpoint, we need to use path style access
-              path_style_access=true
+              path_style_access="true"
           fi
           REPO_PATH="{{ .ArtifactsIn.s3Snap.KeyValue.repoPath }}"
           SNAPSHOT_NAME="{{ .ArtifactsIn.s3Snap.KeyValue.snapshotName }}"          
@@ -446,7 +446,7 @@ actions:
               "endpoint": "'$ENDPOINT'",
               "region": "'$REGION'",
               "base_path": "'$REPO_PATH'",
-              "path_style_access": $path_style_access 
+              "path_style_access": "'$path_style_access'" 
             }
           }
           ' 
