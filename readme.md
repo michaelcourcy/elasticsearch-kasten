@@ -502,5 +502,7 @@ You should see the alias that was created
 s3-ca, Jul 2, 2024, trustedCertEntry,
 ```
 
+In this case restore also the quickstart-small-es-cacerts secret along with the elasticsearch cluster.
+
 
 
